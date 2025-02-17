@@ -3,7 +3,8 @@ import os
 import pandas as pd
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QFrame, QPushButton, 
-    QFileDialog, QSlider, QLabel, QTableWidget, QTableWidgetItem, QStackedWidget, QGraphicsDropShadowEffect, QMessageBox
+    QFileDialog, QSlider, QLabel, QTableWidget, QTableWidgetItem, QStackedWidget, QGraphicsDropShadowEffect, 
+    QMessageBox,QDialog,QDialogButtonBox,QCheckBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
@@ -208,29 +209,62 @@ class SpectralPreprocessingTool(QMainWindow):
     def display_data(self):
         if self.data is not None:
             self.table_widget.clear()
-            self.table_widget.setRowCount(len(self.data))
+            num_rows = min(30, len(self.data))
+            self.table_widget.setRowCount(num_rows)
             self.table_widget.setColumnCount(len(self.data.columns))
             self.table_widget.setHorizontalHeaderLabels(self.data.columns.tolist())
-            for i in range(len(self.data)):
+            for i in range(num_rows):
                 for j, col in enumerate(self.data.columns):
                     self.table_widget.setItem(i, j, QTableWidgetItem(str(self.data.iloc[i][col])))
             self.content_area.setCurrentWidget(self.table_widget)
         else:
             print("No data loaded.")
 
+
     def plot_data(self):
         if self.data is not None:
-            # For now, we assume the first column is 'wavelength' and plot the next available column.
-            # In the future, a popup can let the user choose which columns to plot.
-            if self.data.columns[0].lower() == "wavelength" and len(self.data.columns) > 1:
-                y_col = self.data.columns[1]
-                fig = px.line(self.data, x=self.data.columns[0], y=y_col, title="Spectral Data",
-                              labels={self.data.columns[0]: "Wavelength", y_col: y_col})
+            # Ensure the first column is 'wavelength'
+            first_col = self.data.columns[0]
+            if first_col.lower() != "wavelength":
+                print("First column must be named 'wavelength'.")
+                return
+    
+            # Use all columns except the first (wavelength) for selection
+            available_columns = list(self.data.columns[1:])
+            if not available_columns:
+                print("No additional columns available for plotting.")
+                return
+    
+            # Create and show the column selection dialog
+            dialog = ColumnSelectionDialog(available_columns, self)
+            if dialog.exec_() == QDialog.Accepted:
+                selected_columns = dialog.selected_columns
+                if not selected_columns:
+                    print("No columns selected.")
+                    return
+    
+                # Create a Plotly figure and add a trace for each selected column
+                import plotly.graph_objects as go
+                fig = go.Figure()
+                for col in selected_columns:
+                    fig.add_trace(go.Scatter(
+                        x=self.data[first_col],
+                        y=self.data[col],
+                        mode="lines",
+                        name=col
+                    ))
+                # Configure the layout with automatic labels and legends
+                fig.update_layout(
+                    title="Spectral Data Plot",
+                    xaxis_title=first_col,
+                    yaxis_title="Value",
+                    legend_title="Columns"
+                )
                 html = fig.to_html(include_plotlyjs='cdn')
                 self.plot_view.setHtml(html)
                 self.content_area.setCurrentWidget(self.plot_view)
             else:
-                print("Ensure the first column is named 'wavelength' and at least one data column exists.")
+                print("Plot selection canceled.")
         else:
             print("No data loaded.")
 
@@ -285,6 +319,36 @@ class SpectralPreprocessingTool(QMainWindow):
         # Hide the filter controls after finishing
         self.filter_controls.setVisible(False)
 
+
+
+
+# Dialog for selecting columns to plot
+class ColumnSelectionDialog(QDialog):
+    def __init__(self, columns, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Columns to Plot")
+        self.selected_columns = []
+        self.layout = QVBoxLayout(self)
+        self.checkboxes = []
+
+        # Create a checkbox for each available column
+        for col in columns:
+            checkbox = QCheckBox(col)
+            self.layout.addWidget(checkbox)
+            self.checkboxes.append(checkbox)
+
+        # OK and Cancel buttons
+        self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+        self.layout.addWidget(self.buttonBox)
+
+    def accept(self):
+        # Record the selected columns when OK is pressed
+        self.selected_columns = [cb.text() for cb in self.checkboxes if cb.isChecked()]
+        super().accept()
+        
+        
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = SpectralPreprocessingTool()
